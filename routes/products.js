@@ -1,4 +1,4 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
 const {
   getProducts,
@@ -6,14 +6,14 @@ const {
   createProduct,
   updateProduct,
   deleteProduct,
-} = require('../controllers/productController');
-const { protect } = require('../middleware/auth');
-const roleCheck = require('../middleware/roleCheck');
+} = require("../controllers/productController");
+const { protect } = require("../middleware/auth");
+const roleCheck = require("../middleware/roleCheck");
 
-router.get('/', protect, getProducts);
-router.get('/:id', protect, getProductById);
-router.post('/', protect, roleCheck('admin'), createProduct);
-router.put('/:id', protect, roleCheck('admin'), updateProduct);
-router.delete('/:id', protect, roleCheck('admin'), deleteProduct);
+router.get("/", protect, getProducts);
+router.get("/:id", protect, getProductById);
+router.post("/", protect, roleCheck("admin"), createProduct);
+router.put("/:id", protect, roleCheck("admin"), updateProduct);
+router.delete("/:id", protect, roleCheck("admin"), deleteProduct);
 
 module.exports = router;

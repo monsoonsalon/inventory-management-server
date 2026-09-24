@@ -41,7 +41,7 @@ const createProduct = async (req, res) => {
       return res.status(400).json({ message: 'name, sku and category are required' });
     }
 
-    const product = await Product.create({
+    const product = await Product.create({ 
       name,
       sku,
       category,
