@@ -33,17 +33,32 @@ const getProductById = async (req, res) => {
   }
 };
 
+// @route GET /api/products/ean/:ean - exact-match lookup used by the barcode scanner
+const getProductByEan = async (req, res) => {
+  try {
+    const ean = req.params.ean?.trim();
+    if (!ean) return res.status(400).json({ message: 'EAN is required' });
+
+    const product = await Product.findOne({ ean });
+    if (!product) return res.status(404).json({ message: 'No product found for this barcode' });
+    res.json(product);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // @route POST /api/products (admin only)
 const createProduct = async (req, res) => {
   try {
-    const { name, sku, category, quantity, minimumStock } = req.body;
-    if (!name || !sku || !category) {
-      return res.status(400).json({ message: 'name, sku and category are required' });
+    const { name, sku, ean, category, quantity, minimumStock } = req.body;
+    if (!name || !sku || !ean || !category) {
+      return res.status(400).json({ message: 'name, sku, ean and category are required' });
     }
 
-    const product = await Product.create({ 
+    const product = await Product.create({
       name,
       sku,
+      ean: ean.trim(),
       category,
       quantity: quantity ?? 0,
       minimumStock: minimumStock ?? 10,
@@ -52,7 +67,8 @@ const createProduct = async (req, res) => {
     res.status(201).json(product);
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'A product with this SKU already exists' });
+      const field = Object.keys(err.keyPattern || {})[0] || 'SKU';
+      return res.status(400).json({ message: `A product with this ${field} already exists` });
     }
     res.status(500).json({ message: err.message });
   }
@@ -64,9 +80,13 @@ const updateProduct = async (req, res) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
-    const { name, sku, category, quantity, minimumStock } = req.body;
+    const { name, sku, ean, category, quantity, minimumStock } = req.body;
     if (name !== undefined) product.name = name;
     if (sku !== undefined) product.sku = sku;
+    if (ean !== undefined) {
+      if (!ean.trim()) return res.status(400).json({ message: 'EAN is required' });
+      product.ean = ean.trim();
+    }
     if (category !== undefined) product.category = category;
     if (quantity !== undefined) product.quantity = quantity;
     if (minimumStock !== undefined) product.minimumStock = minimumStock;
@@ -75,8 +95,84 @@ const updateProduct = async (req, res) => {
     res.json(product);
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'A product with this SKU already exists' });
+      const field = Object.keys(err.keyPattern || {})[0] || 'SKU';
+      return res.status(400).json({ message: `A product with this ${field} already exists` });
     }
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const REQUIRED_IMPORT_COLUMNS = ['name', 'sku', 'ean', 'category', 'quantity', 'minimumStock'];
+
+// @route POST /api/products/import (admin only)
+// Body: { rows: [{ name, sku, ean?, category, quantity, minimumStock }, ...] }
+// `rows` come from the client's Excel parse; every row is expected to carry
+// all of REQUIRED_IMPORT_COLUMNS as keys (even if a value is blank) - that's
+// what lets us tell "column missing from the sheet" apart from "value left
+// blank in one row" and report a clear top-level error for the former.
+const importProducts = async (req, res) => {
+  try {
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No rows to import' });
+    }
+
+    const missingColumns = REQUIRED_IMPORT_COLUMNS.filter(
+      (col) => !rows.every((row) => Object.prototype.hasOwnProperty.call(row, col))
+    );
+    if (missingColumns.length > 0) {
+      return res.status(400).json({
+        message: `Missing required column(s): ${missingColumns.join(', ')}`,
+      });
+    }
+
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 2; // +1 for header row, +1 for 1-indexing
+
+      const name = String(row.name ?? '').trim();
+      const sku = String(row.sku ?? '').trim();
+      const category = String(row.category ?? '').trim();
+      const ean = String(row.ean ?? '').trim();
+      const quantity = row.quantity === '' || row.quantity == null ? 0 : Number(row.quantity);
+      const minimumStock =
+        row.minimumStock === '' || row.minimumStock == null ? 10 : Number(row.minimumStock);
+
+      if (!name || !sku || !ean || !category) {
+        errors.push({ row: rowNum, message: 'Missing name, sku, ean, or category' });
+        continue;
+      }
+      if (Number.isNaN(quantity) || quantity < 0) {
+        errors.push({ row: rowNum, message: 'Invalid quantity' });
+        continue;
+      }
+      if (Number.isNaN(minimumStock) || minimumStock < 0) {
+        errors.push({ row: rowNum, message: 'Invalid minimum stock' });
+        continue;
+      }
+
+      try {
+        const product = await Product.create({ name, sku, ean, category, quantity, minimumStock });
+        created.push(product);
+      } catch (err) {
+        if (err.code === 11000) {
+          const field = Object.keys(err.keyPattern || {})[0] || 'sku';
+          errors.push({ row: rowNum, message: `Duplicate ${field}: "${field === 'ean' ? ean : sku}"` });
+        } else {
+          errors.push({ row: rowNum, message: err.message });
+        }
+      }
+    }
+
+    res.status(created.length > 0 ? 201 : 400).json({
+      createdCount: created.length,
+      errorCount: errors.length,
+      errors,
+    });
+  } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
@@ -92,4 +188,12 @@ const deleteProduct = async (req, res) => {
   }
 };
 
-module.exports = { getProducts, getProductById, createProduct, updateProduct, deleteProduct };
+module.exports = {
+  getProducts,
+  getProductById,
+  getProductByEan,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  importProducts,
+};

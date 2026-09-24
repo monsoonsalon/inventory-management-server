@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const Transaction = require('../models/Transaction');
+const DamagedProduct = require('../models/DamagedProduct');
 
 // NOTE: Multi-document transactions require MongoDB to run as a replica set.
 // A standalone local `mongod` does not support sessions, so these operations
@@ -30,6 +31,21 @@ const stockIn = async (req, res) => {
 
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    // Damaged returns are logged separately and never added back into
+    // sellable inventory - the product's quantity is intentionally left
+    // untouched here, unlike customer/supplier returns which do restock it.
+    if (isReturn && returnType === 'damaged') {
+      const damaged = await DamagedProduct.create({
+        productId: product._id,
+        employeeId: req.user._id,
+        quantity: Number(quantity),
+        note: note || '',
+        referenceId: referenceId.trim(),
+      });
+
+      return res.status(201).json({ damaged, product });
+    }
 
     const previousQuantity = product.quantity;
     product.quantity = previousQuantity + Number(quantity);

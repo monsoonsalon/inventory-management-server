@@ -4,6 +4,7 @@ const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     sku: { type: String, required: true, unique: true, trim: true, uppercase: true },
+    ean: { type: String, required: true, unique: true, trim: true },
     category: {
       type: String,
       required: true,

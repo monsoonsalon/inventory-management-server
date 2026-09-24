@@ -9,6 +9,7 @@ const productRoutes = require("./routes/products");
 const stockRoutes = require("./routes/stock");
 const transactionRoutes = require("./routes/transactions");
 const dashboardRoutes = require("./routes/dashboard");
+const damagedRoutes = require("./routes/damaged");
 const path = require("path");
 
 connectDB();
@@ -26,6 +27,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/stock", stockRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/damaged", damagedRoutes);
 
 app.use(express.static(path.join(__dirname, "public")));
 
