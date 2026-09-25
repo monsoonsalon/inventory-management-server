@@ -1,4 +1,5 @@
-const Product = require('../models/Product');
+const Product = require("../models/Product");
+const { toEan13 } = require("../utils/barcodeGenerator");
 
 // @route GET /api/products?search=&status=
 const getProducts = async (req, res) => {
@@ -8,8 +9,8 @@ const getProducts = async (req, res) => {
 
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: "i" } },
+        { sku: { $regex: search, $options: "i" } },
       ];
     }
     if (status) {
@@ -26,7 +27,7 @@ const getProducts = async (req, res) => {
 const getProductById = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
+    if (!product) return res.status(404).json({ message: "Product not found" });
     res.json(product);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -36,11 +37,21 @@ const getProductById = async (req, res) => {
 // @route GET /api/products/ean/:ean - exact-match lookup used by the barcode scanner
 const getProductByEan = async (req, res) => {
   try {
-    const ean = req.params.ean?.trim();
-    if (!ean) return res.status(400).json({ message: 'EAN is required' });
+    const rawEan = req.params.ean?.trim();
+    if (!rawEan) return res.status(400).json({ message: "EAN is required" });
+
+    let ean;
+    try {
+      ean = toEan13(rawEan);
+    } catch {
+      ean = rawEan;
+    }
 
     const product = await Product.findOne({ ean });
-    if (!product) return res.status(404).json({ message: 'No product found for this barcode' });
+    if (!product)
+      return res
+        .status(404)
+        .json({ message: "No product found for this barcode" });
     res.json(product);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -52,13 +63,22 @@ const createProduct = async (req, res) => {
   try {
     const { name, sku, ean, category, quantity, minimumStock } = req.body;
     if (!name || !sku || !ean || !category) {
-      return res.status(400).json({ message: 'name, sku, ean and category are required' });
+      return res
+        .status(400)
+        .json({ message: "name, sku, ean and category are required" });
+    }
+
+    let normalizedEan;
+    try {
+      normalizedEan = toEan13(ean);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
     }
 
     const product = await Product.create({
       name,
       sku,
-      ean: ean.trim(),
+      ean: normalizedEan,
       category,
       quantity: quantity ?? 0,
       minimumStock: minimumStock ?? 10,
@@ -67,8 +87,10 @@ const createProduct = async (req, res) => {
     res.status(201).json(product);
   } catch (err) {
     if (err.code === 11000) {
-      const field = Object.keys(err.keyPattern || {})[0] || 'SKU';
-      return res.status(400).json({ message: `A product with this ${field} already exists` });
+      const field = Object.keys(err.keyPattern || {})[0] || "SKU";
+      return res
+        .status(400)
+        .json({ message: `A product with this ${field} already exists` });
     }
     res.status(500).json({ message: err.message });
   }
@@ -78,14 +100,19 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
+    if (!product) return res.status(404).json({ message: "Product not found" });
 
     const { name, sku, ean, category, quantity, minimumStock } = req.body;
     if (name !== undefined) product.name = name;
     if (sku !== undefined) product.sku = sku;
     if (ean !== undefined) {
-      if (!ean.trim()) return res.status(400).json({ message: 'EAN is required' });
-      product.ean = ean.trim();
+      if (!ean.trim())
+        return res.status(400).json({ message: "EAN is required" });
+      try {
+        product.ean = toEan13(ean);
+      } catch (err) {
+        return res.status(400).json({ message: err.message });
+      }
     }
     if (category !== undefined) product.category = category;
     if (quantity !== undefined) product.quantity = quantity;
@@ -95,14 +122,23 @@ const updateProduct = async (req, res) => {
     res.json(product);
   } catch (err) {
     if (err.code === 11000) {
-      const field = Object.keys(err.keyPattern || {})[0] || 'SKU';
-      return res.status(400).json({ message: `A product with this ${field} already exists` });
+      const field = Object.keys(err.keyPattern || {})[0] || "SKU";
+      return res
+        .status(400)
+        .json({ message: `A product with this ${field} already exists` });
     }
     res.status(500).json({ message: err.message });
   }
 };
 
-const REQUIRED_IMPORT_COLUMNS = ['name', 'sku', 'ean', 'category', 'quantity', 'minimumStock'];
+const REQUIRED_IMPORT_COLUMNS = [
+  "name",
+  "sku",
+  "ean",
+  "category",
+  "quantity",
+  "minimumStock",
+];
 
 // @route POST /api/products/import (admin only)
 // Body: { rows: [{ name, sku, ean?, category, quantity, minimumStock }, ...] }
@@ -114,15 +150,16 @@ const importProducts = async (req, res) => {
   try {
     const rows = req.body.rows;
     if (!Array.isArray(rows) || rows.length === 0) {
-      return res.status(400).json({ message: 'No rows to import' });
+      return res.status(400).json({ message: "No rows to import" });
     }
 
     const missingColumns = REQUIRED_IMPORT_COLUMNS.filter(
-      (col) => !rows.every((row) => Object.prototype.hasOwnProperty.call(row, col))
+      (col) =>
+        !rows.every((row) => Object.prototype.hasOwnProperty.call(row, col)),
     );
     if (missingColumns.length > 0) {
       return res.status(400).json({
-        message: `Missing required column(s): ${missingColumns.join(', ')}`,
+        message: `Missing required column(s): ${missingColumns.join(", ")}`,
       });
     }
 
@@ -133,34 +170,58 @@ const importProducts = async (req, res) => {
       const row = rows[i];
       const rowNum = i + 2; // +1 for header row, +1 for 1-indexing
 
-      const name = String(row.name ?? '').trim();
-      const sku = String(row.sku ?? '').trim();
-      const category = String(row.category ?? '').trim();
-      const ean = String(row.ean ?? '').trim();
-      const quantity = row.quantity === '' || row.quantity == null ? 0 : Number(row.quantity);
+      const name = String(row.name ?? "").trim();
+      const sku = String(row.sku ?? "").trim();
+      const category = String(row.category ?? "").trim();
+      const ean = String(row.ean ?? "").trim();
+      const quantity =
+        row.quantity === "" || row.quantity == null ? 0 : Number(row.quantity);
       const minimumStock =
-        row.minimumStock === '' || row.minimumStock == null ? 10 : Number(row.minimumStock);
+        row.minimumStock === "" || row.minimumStock == null
+          ? 10
+          : Number(row.minimumStock);
 
       if (!name || !sku || !ean || !category) {
-        errors.push({ row: rowNum, message: 'Missing name, sku, ean, or category' });
+        errors.push({
+          row: rowNum,
+          message: "Missing name, sku, ean, or category",
+        });
         continue;
       }
       if (Number.isNaN(quantity) || quantity < 0) {
-        errors.push({ row: rowNum, message: 'Invalid quantity' });
+        errors.push({ row: rowNum, message: "Invalid quantity" });
         continue;
       }
       if (Number.isNaN(minimumStock) || minimumStock < 0) {
-        errors.push({ row: rowNum, message: 'Invalid minimum stock' });
+        errors.push({ row: rowNum, message: "Invalid minimum stock" });
+        continue;
+      }
+
+      let normalizedEan;
+      try {
+        normalizedEan = toEan13(ean);
+      } catch (err) {
+        errors.push({ row: rowNum, message: err.message });
         continue;
       }
 
       try {
-        const product = await Product.create({ name, sku, ean, category, quantity, minimumStock });
+        const product = await Product.create({
+          name,
+          sku,
+          ean: normalizedEan,
+          category,
+          quantity,
+          minimumStock,
+        });
         created.push(product);
       } catch (err) {
         if (err.code === 11000) {
-          const field = Object.keys(err.keyPattern || {})[0] || 'sku';
-          errors.push({ row: rowNum, message: `Duplicate ${field}: "${field === 'ean' ? ean : sku}"` });
+          const field = Object.keys(err.keyPattern || {})[0] || "sku";
+          errors.push({
+            row: rowNum,
+            message: `Duplicate ${field}: "${field === "ean" ? ean : sku}"`,
+          });
         } else {
           errors.push({ row: rowNum, message: err.message });
         }
@@ -181,8 +242,8 @@ const importProducts = async (req, res) => {
 const deleteProduct = async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    res.json({ message: 'Product deleted' });
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    res.json({ message: "Product deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
