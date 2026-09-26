@@ -61,11 +61,16 @@ const getProductByEan = async (req, res) => {
 // @route POST /api/products (admin only)
 const createProduct = async (req, res) => {
   try {
-    const { name, sku, ean, category, quantity, minimumStock } = req.body;
+    const { name, sku, ean, category, quantity, minimumStock, packSize, mrp, expiryDate } = req.body;
     if (!name || !sku || !ean || !category) {
       return res
         .status(400)
         .json({ message: "name, sku, ean and category are required" });
+    }
+    if (!packSize || mrp === undefined || mrp === '' || !expiryDate) {
+      return res
+        .status(400)
+        .json({ message: "packSize, mrp and expiryDate are required" });
     }
 
     let normalizedEan;
@@ -82,6 +87,9 @@ const createProduct = async (req, res) => {
       category,
       quantity: quantity ?? 0,
       minimumStock: minimumStock ?? 10,
+      packSize,
+      mrp,
+      expiryDate,
     });
 
     res.status(201).json(product);
@@ -102,7 +110,7 @@ const updateProduct = async (req, res) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: "Product not found" });
 
-    const { name, sku, ean, category, quantity, minimumStock } = req.body;
+    const { name, sku, ean, category, quantity, minimumStock, packSize, mrp, expiryDate } = req.body;
     if (name !== undefined) product.name = name;
     if (sku !== undefined) product.sku = sku;
     if (ean !== undefined) {
@@ -117,6 +125,15 @@ const updateProduct = async (req, res) => {
     if (category !== undefined) product.category = category;
     if (quantity !== undefined) product.quantity = quantity;
     if (minimumStock !== undefined) product.minimumStock = minimumStock;
+    if (packSize !== undefined) product.packSize = packSize;
+    if (mrp !== undefined) product.mrp = mrp;
+    if (expiryDate !== undefined) product.expiryDate = expiryDate;
+
+    if (!product.packSize || product.mrp === null || product.mrp === undefined || !product.expiryDate) {
+      return res
+        .status(400)
+        .json({ message: "packSize, mrp and expiryDate are required" });
+    }
 
     await product.save(); // triggers pre-save status recalculation
     res.json(product);
@@ -138,6 +155,9 @@ const REQUIRED_IMPORT_COLUMNS = [
   "category",
   "quantity",
   "minimumStock",
+  "packSize",
+  "mrp",
+  "expiryDate",
 ];
 
 // @route POST /api/products/import (admin only)
@@ -180,6 +200,9 @@ const importProducts = async (req, res) => {
         row.minimumStock === "" || row.minimumStock == null
           ? 10
           : Number(row.minimumStock);
+      const packSize = String(row.packSize ?? "").trim();
+      const mrp = row.mrp === "" || row.mrp == null ? NaN : Number(row.mrp);
+      const expiryDateRaw = row.expiryDate;
 
       if (!name || !sku || !ean || !category) {
         errors.push({
@@ -194,6 +217,19 @@ const importProducts = async (req, res) => {
       }
       if (Number.isNaN(minimumStock) || minimumStock < 0) {
         errors.push({ row: rowNum, message: "Invalid minimum stock" });
+        continue;
+      }
+      if (!packSize) {
+        errors.push({ row: rowNum, message: "Missing pack size" });
+        continue;
+      }
+      if (Number.isNaN(mrp) || mrp < 0) {
+        errors.push({ row: rowNum, message: "Invalid MRP" });
+        continue;
+      }
+      const expiryDate = expiryDateRaw ? new Date(expiryDateRaw) : null;
+      if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
+        errors.push({ row: rowNum, message: "Missing or invalid expiry date" });
         continue;
       }
 
@@ -213,6 +249,9 @@ const importProducts = async (req, res) => {
           category,
           quantity,
           minimumStock,
+          packSize,
+          mrp,
+          expiryDate,
         });
         created.push(product);
       } catch (err) {

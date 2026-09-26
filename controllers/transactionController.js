@@ -1,4 +1,5 @@
 const Transaction = require('../models/Transaction');
+const DamagedProduct = require('../models/DamagedProduct');
 
 // @route GET /api/transactions?page=&limit=&productId=&type=&dateFrom=&dateTo=
 const getTransactions = async (req, res) => {
@@ -27,7 +28,7 @@ const getTransactions = async (req, res) => {
 
     const [transactions, total] = await Promise.all([
       Transaction.find(query)
-        .populate('productId', 'name sku')
+        .populate('productId', 'name sku packSize mrp expiryDate')
         .populate('employeeId', 'name email')
         .sort({ createdAt: -1 })
         .skip((pageNum - 1) * limitNum)
@@ -49,4 +50,45 @@ const getTransactions = async (req, res) => {
   }
 };
 
-module.exports = { getTransactions };
+// @route GET /api/transactions/summary?dateFrom=&dateTo=
+// Counts of every transaction "kind" (across all products, not just the
+// current page) so the Transactions view can show totals at a glance.
+const getTransactionsSummary = async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.query;
+
+    const dateRange = {};
+    if (dateFrom) {
+      const startDate = new Date(dateFrom);
+      startDate.setHours(0, 0, 0, 0);
+      dateRange.$gte = startDate;
+    }
+    if (dateTo) {
+      const endDate = new Date(dateTo);
+      endDate.setHours(23, 59, 59, 999);
+      dateRange.$lte = endDate;
+    }
+    const createdAtFilter = Object.keys(dateRange).length ? { createdAt: dateRange } : {};
+
+    const [stockIn, stockOut, customerReturn, supplierReturn, damagedReturn] = await Promise.all([
+      Transaction.countDocuments({ ...createdAtFilter, type: 'IN', source: 'purchase' }),
+      Transaction.countDocuments({ ...createdAtFilter, type: 'OUT' }),
+      Transaction.countDocuments({ ...createdAtFilter, type: 'IN', source: 'return', returnType: 'customer' }),
+      Transaction.countDocuments({ ...createdAtFilter, type: 'IN', source: 'return', returnType: 'supplier' }),
+      DamagedProduct.countDocuments(createdAtFilter),
+    ]);
+
+    res.json({
+      stockIn,
+      stockOut,
+      customerReturn,
+      supplierReturn,
+      damagedReturn,
+      totalReturns: customerReturn + supplierReturn + damagedReturn,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { getTransactions, getTransactionsSummary };

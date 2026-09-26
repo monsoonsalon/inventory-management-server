@@ -11,6 +11,9 @@ const productSchema = new mongoose.Schema(
     },
     quantity: { type: Number, required: true, min: 0, default: 0 },
     minimumStock: { type: Number, required: true, min: 0, default: 10 },
+    packSize: { type: String, required: true, trim: true },
+    mrp: { type: Number, required: true, min: 0 },
+    expiryDate: { type: Date, required: true },
     status: {
       type: String,
       enum: ['In Stock', 'Low Stock', 'Out of Stock'],

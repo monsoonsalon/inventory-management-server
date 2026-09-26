@@ -4,7 +4,7 @@ const DamagedProduct = require('../models/DamagedProduct');
 const getDamagedProducts = async (req, res) => {
   try {
     const items = await DamagedProduct.find()
-      .populate('productId', 'name sku ean category')
+      .populate('productId', 'name sku ean category packSize mrp expiryDate')
       .populate('employeeId', 'name email')
       .sort({ createdAt: -1 });
     res.json(items);
