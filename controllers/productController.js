@@ -148,22 +148,19 @@ const updateProduct = async (req, res) => {
   }
 };
 
-const REQUIRED_IMPORT_COLUMNS = [
-  "name",
-  "sku",
-  "ean",
-  "category",
-  "quantity",
-  "minimumStock",
-  "packSize",
-  "mrp",
-  "expiryDate",
-];
+// Only these actually block a row from importing - they're the fields every
+// supplier sheet we've seen carries in some form (Item Code, Item
+// Description, Brand, EAN Code). Quantity/Minimum Stock get sane defaults,
+// and Pack Size/MRP/Expiry Date are taken opportunistically when the sheet
+// has them but never required, since most supplier catalogs don't carry
+// stock levels or expiry dates at all.
+const REQUIRED_IMPORT_COLUMNS = ["name", "sku", "ean", "category"];
 
 // @route POST /api/products/import (admin only)
-// Body: { rows: [{ name, sku, ean?, category, quantity, minimumStock }, ...] }
-// `rows` come from the client's Excel parse; every row is expected to carry
-// all of REQUIRED_IMPORT_COLUMNS as keys (even if a value is blank) - that's
+// Body: { rows: [{ name, sku, ean, category, quantity?, minimumStock?, packSize?, mrp?, expiryDate? }, ...] }
+// `rows` come from the client's Excel parse (see importFromExcel.js), which
+// maps a variety of supplier column headers onto this shape and always sets
+// every key (blank string when the sheet has no matching column) - that's
 // what lets us tell "column missing from the sheet" apart from "value left
 // blank in one row" and report a clear top-level error for the former.
 const importProducts = async (req, res) => {
@@ -201,8 +198,6 @@ const importProducts = async (req, res) => {
           ? 10
           : Number(row.minimumStock);
       const packSize = String(row.packSize ?? "").trim();
-      const mrp = row.mrp === "" || row.mrp == null ? NaN : Number(row.mrp);
-      const expiryDateRaw = row.expiryDate;
 
       if (!name || !sku || !ean || !category) {
         errors.push({
@@ -219,18 +214,25 @@ const importProducts = async (req, res) => {
         errors.push({ row: rowNum, message: "Invalid minimum stock" });
         continue;
       }
-      if (!packSize) {
-        errors.push({ row: rowNum, message: "Missing pack size" });
-        continue;
+
+      // Optional fields: parsed when present, left null/blank otherwise -
+      // an empty sheet cell here never blocks the row.
+      let mrp = null;
+      if (row.mrp !== "" && row.mrp != null) {
+        mrp = Number(row.mrp);
+        if (Number.isNaN(mrp) || mrp < 0) {
+          errors.push({ row: rowNum, message: "Invalid MRP" });
+          continue;
+        }
       }
-      if (Number.isNaN(mrp) || mrp < 0) {
-        errors.push({ row: rowNum, message: "Invalid MRP" });
-        continue;
-      }
-      const expiryDate = expiryDateRaw ? new Date(expiryDateRaw) : null;
-      if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
-        errors.push({ row: rowNum, message: "Missing or invalid expiry date" });
-        continue;
+
+      let expiryDate = null;
+      if (row.expiryDate) {
+        expiryDate = new Date(row.expiryDate);
+        if (Number.isNaN(expiryDate.getTime())) {
+          errors.push({ row: rowNum, message: "Invalid expiry date" });
+          continue;
+        }
       }
 
       let normalizedEan;

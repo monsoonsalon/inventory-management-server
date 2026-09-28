@@ -11,9 +11,13 @@ const productSchema = new mongoose.Schema(
     },
     quantity: { type: Number, required: true, min: 0, default: 0 },
     minimumStock: { type: Number, required: true, min: 0, default: 10 },
-    packSize: { type: String, required: true, trim: true },
-    mrp: { type: Number, required: true, min: 0 },
-    expiryDate: { type: Date, required: true },
+    // Not required at the schema level: the manual Add/Edit Product form
+    // enforces these itself (see createProduct/updateProduct), but bulk
+    // imports from supplier sheets often don't carry all three - most
+    // commonly expiry date - so the schema stays permissive here.
+    packSize: { type: String, trim: true, default: '' },
+    mrp: { type: Number, min: 0, default: null },
+    expiryDate: { type: Date, default: null },
     status: {
       type: String,
       enum: ['In Stock', 'Low Stock', 'Out of Stock'],
