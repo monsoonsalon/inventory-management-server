@@ -48,10 +48,10 @@ module.exports = barcodeGenerator;
 module.exports.toEan13 = toEan13;
 
 // TEST FROM TERMINAL
-barcodeGenerator("1234567898766")
+barcodeGenerator("8906154401095")
   .then((dataUrl) => {
     console.log("Barcode generated");
-    console.log("EAN:", toEan13("1234567898766"));
+    console.log("EAN:", toEan13("8906154401095"));
     console.log(dataUrl);
   })
   .catch((error) => {

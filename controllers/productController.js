@@ -80,7 +80,7 @@ const createProduct = async (req, res) => {
       return res.status(400).json({ message: err.message });
     }
 
-    const product = await Product.create({
+    const product = await Product.create({ 
       name,
       sku,
       ean: normalizedEan,
